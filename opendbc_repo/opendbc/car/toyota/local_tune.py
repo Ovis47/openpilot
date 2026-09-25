@@ -13,12 +13,17 @@ LONG_TUNE_PATH = "/data/long_tune.json"
 # 誤入力で制御が極端になる事故を防ぐため、範囲外の値はこの範囲に丸める
 ACTUATOR_DELAY_RANGE = (0.05, 0.5)
 KI_SCALE_RANGE = (0.1, 1.5)
+# 先読みと勾配補正は純正より弱める方向だけ許す（強めると揺れを増やすため）
+FUTURE_SCALE_RANGE = (0.0, 1.0)
+PITCH_SCALE_RANGE = (0.0, 1.0)
 
 
 @dataclass(frozen=True)
 class LongTune:
   actuator_delay: float | None = None  # None なら車種ごとの既定値を使う
   ki_scale: float = 1.0
+  future_scale: float = 1.0  # carcontroller が実加速度を先読みする時間の倍率
+  pitch_scale: float = 1.0   # 勾配変化の補正量の倍率
 
 
 def _clamped(name: str, value: object, bounds: tuple[float, float]) -> float | None:
@@ -46,8 +51,12 @@ def load_long_tune(path: str | None = None) -> LongTune:
     carlog.warning(f"long tune: {path} must be an object")
     return LongTune()
 
+  def scale(name: str, bounds: tuple[float, float]) -> float:
+    value = _clamped(name, raw[name], bounds) if name in raw else None
+    return 1.0 if value is None else value
+
   delay = _clamped("actuator_delay", raw["actuator_delay"], ACTUATOR_DELAY_RANGE) if "actuator_delay" in raw else None
-  ki_scale = _clamped("ki_scale", raw["ki_scale"], KI_SCALE_RANGE) if "ki_scale" in raw else None
-  tune = LongTune(actuator_delay=delay, ki_scale=1.0 if ki_scale is None else ki_scale)
+  tune = LongTune(actuator_delay=delay, ki_scale=scale("ki_scale", KI_SCALE_RANGE),
+                  future_scale=scale("future_scale", FUTURE_SCALE_RANGE), pitch_scale=scale("pitch_scale", PITCH_SCALE_RANGE))
   carlog.info(f"long tune loaded: {tune}")
   return tune

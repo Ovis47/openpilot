@@ -64,6 +64,7 @@ class CarController(CarControllerBase):
 
     # *** start long control state ***
     self.long_pid = get_long_tune(self.CP, self.params)
+    self.long_tune = load_long_tune()
     self.aego = FirstOrderFilter(0.0, 0.25, DT_CTRL * 3)
     self.pitch = FirstOrderFilter(0, 0.5, DT_CTRL)
     self.pitch_hp = HighPassFilter(0.0, 0.25, 1.5, DT_CTRL)
@@ -220,7 +221,8 @@ class CarController(CarControllerBase):
         self.aego.update(a_ego_blended)
         j_ego = (self.aego.x - prev_aego) / (DT_CTRL * 3)
 
-        future_t = float(np.interp(CS.out.vEgo, [2., 5.], [0.25, 0.5]))
+        # 先読みは aEgo の計測ノイズを増幅して PID を揺らすため、車両ごとに弱められるようにする
+        future_t = float(np.interp(CS.out.vEgo, [2., 5.], [0.25, 0.5])) * self.long_tune.future_scale
         a_ego_future = a_ego_blended + j_ego * future_t
 
         if CC.longActive:
@@ -233,7 +235,7 @@ class CarController(CarControllerBase):
             # Toyota's PCM slowly responds to changes in pitch. On change, we amplify our
             # acceleration request to compensate for the undershoot and following overshoot
             pitch_compensation = float(np.clip(math.sin(self.pitch_hp.x) * ACCELERATION_DUE_TO_GRAVITY,
-                                               -MAX_PITCH_COMPENSATION, MAX_PITCH_COMPENSATION))
+                                               -MAX_PITCH_COMPENSATION, MAX_PITCH_COMPENSATION)) * self.long_tune.pitch_scale
             pcm_accel_cmd += pitch_compensation
 
           pcm_accel_cmd = self.long_pid.update(error_future,
