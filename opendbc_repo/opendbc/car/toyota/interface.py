@@ -7,6 +7,7 @@ from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerParams, TSS2_CAR, RADAR_ACC_CAR, MIN_ACC_SPEED, \
                                                   EPS_SCALE, ANGLE_CONTROL_CAR, ToyotaSafetyFlags, NO_DSU_CAR, UNSUPPORTED_DSU_CAR, \
                                                   SECOC_CAR
+from opendbc.car.toyota.local_tune import load_long_tune
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 
@@ -135,6 +136,11 @@ class CarInterface(CarInterfaceBase):
       # Hybrids have much quicker longitudinal actuator response
       if ret.flags & ToyotaFlags.HYBRID.value:
         ret.longitudinalActuatorDelay = 0.05
+
+    # 遅延はプランナーとワールドモデルが目標加速度を先読みする時間になるため、ログから求めた値で上書きできるようにする
+    actuator_delay = load_long_tune().actuator_delay
+    if ret.openpilotLongitudinalControl and actuator_delay is not None:
+      ret.longitudinalActuatorDelay = actuator_delay
 
     return ret
 

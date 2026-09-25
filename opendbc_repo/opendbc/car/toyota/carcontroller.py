@@ -8,6 +8,7 @@ from opendbc.car.common.pid import PIDController
 from opendbc.car.secoc import add_mac, build_sync_mac
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.toyota import toyotacan
+from opendbc.car.toyota.local_tune import load_long_tune
 from opendbc.car.toyota.values import CAR, TSS2_CAR, UNSUPPORTED_DSU_CAR, CarControllerParams, ToyotaFlags
 from opendbc.can import CANPacker
 
@@ -40,6 +41,9 @@ def get_long_tune(CP, params):
   else:
     kiBP = [0., 5., 35.]
     kiV = [3.6, 2.4, 1.5]
+
+  # 車両個体ごとの応答に合わせるため、ログから求めた倍率で積分ゲイン全体を調整できるようにする
+  kiV = [ki * load_long_tune().ki_scale for ki in kiV]
 
   return PIDController(0.0, (kiBP, kiV), k_f=1.0,
                        pos_limit=params.ACCEL_MAX, neg_limit=params.ACCEL_MIN,
