@@ -57,7 +57,9 @@ class CarState(CarStateBase):
     cp_cam = can_parsers[Bus.cam]
 
     ret = structs.CarState()
-    cp_acc = cp_cam if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) else cp
+    # リルートハーネスでは DSU の出力(ACC_CONTROL, PCS_HUD, PRE_COLLISION)が bus 2 に来る
+    dsu_reroute = bool(self.CP.flags & ToyotaFlags.DSU_REROUTE.value)
+    cp_acc = cp_cam if (self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) or dsu_reroute) else cp
 
     if not self.CP.flags & ToyotaFlags.SECOC.value:
       self.gvc = cp.vl["VSC1S07"]["GVC"]
@@ -150,7 +152,7 @@ class CarState(CarStateBase):
       conversion_factor = CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS
       ret.cruiseState.speedCluster = cluster_set_speed * conversion_factor
 
-    if self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
+    if (self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value) or dsu_reroute:
       self.acc_type = cp_acc.vl["ACC_CONTROL"]["ACC_TYPE"]
       ret.stockFcw = bool(cp_acc.vl["PCS_HUD"]["FCW"])
 
@@ -198,6 +200,12 @@ class CarState(CarStateBase):
         self.distance_button = cp_acc.vl["ACC_CONTROL"]["DISTANCE"]
 
         buttonEvents += create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
+
+    if dsu_reroute:
+      # 車間距離ボタンは DSU に配線されており、DSU の ACC_CONTROL にだけ現れる
+      prev_distance_button = self.distance_button
+      self.distance_button = cp_acc.vl["ACC_CONTROL"]["DISTANCE"]
+      buttonEvents += create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
 
     ret.buttonEvents = buttonEvents
     return ret

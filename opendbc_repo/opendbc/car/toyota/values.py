@@ -62,6 +62,8 @@ class ToyotaFlags(IntFlag):
   # Detected flags
   HYBRID = 1
   DISABLE_RADAR = 4
+  # cydia2020 のリルートハーネスで DSU の車両側 CAN が panda の bus 2 に付け替えられている
+  DSU_REROUTE = 4096
 
   # Static flags
   TSS2 = 8

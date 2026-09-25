@@ -3,7 +3,8 @@ from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.carcontroller import CarController
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerParams, TSS2_CAR, RADAR_ACC_CAR, MIN_ACC_SPEED, \
-                                                  EPS_SCALE, ANGLE_CONTROL_CAR, ToyotaSafetyFlags
+                                                  EPS_SCALE, ANGLE_CONTROL_CAR, ToyotaSafetyFlags, NO_DSU_CAR, UNSUPPORTED_DSU_CAR, \
+                                                  SECOC_CAR
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 
@@ -98,8 +99,16 @@ class CarInterface(CarInterfaceBase):
     # openpilot longitudinal behind alpha long toggle:
     #  - TSS2 radar ACC cars (disables radar)
 
+    # リルートハーネスでは DSU の ACC_CONTROL(0x343) が bus 0 から消えて bus 2 にだけ現れる。
+    # この配置なら panda が DSU の 0x343 の転送を止めて openpilot の指令に置き換えられるため、
+    # 設定なしで検出して縦制御を有効にする。DSU を持つ TSS-P 車に限り、他の構成の挙動は変えない
+    has_dsu = candidate not in (TSS2_CAR | NO_DSU_CAR | UNSUPPORTED_DSU_CAR | SECOC_CAR)
+    if has_dsu and 0x343 in fingerprint[2] and 0x343 not in fingerprint[0]:
+      ret.flags |= ToyotaFlags.DSU_REROUTE.value
+
     ret.openpilotLongitudinalControl = (candidate in (TSS2_CAR - RADAR_ACC_CAR) or
-                                        bool(ret.flags & ToyotaFlags.DISABLE_RADAR.value))
+                                        bool(ret.flags & ToyotaFlags.DISABLE_RADAR.value) or
+                                        bool(ret.flags & ToyotaFlags.DSU_REROUTE.value))
 
     ret.autoResumeSng = ret.openpilotLongitudinalControl
 
