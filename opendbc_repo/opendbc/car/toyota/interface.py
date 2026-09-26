@@ -1,15 +1,20 @@
+import os
+
 from opendbc.car import Bus, structs, get_safety_config, uds
 from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.carcontroller import CarController
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerParams, TSS2_CAR, RADAR_ACC_CAR, NO_DSU_CAR, \
                                                   MIN_ACC_SPEED, EPS_SCALE, NO_STOP_TIMER_CAR, ANGLE_CONTROL_CAR, \
-                                                  ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR
+                                                  ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR, SECOC_CAR
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP, ToyotaSafetyFlagsSP
 
 SteerControlType = structs.CarParams.SteerControlType
+
+# cydia2020 のリルートハーネスを付けていることを示すファイル（中身は見ない）
+DSU_REROUTE_FLAG_PATH = "/data/toyota_dsu_reroute"
 
 
 class CarInterface(CarInterfaceBase):
@@ -162,6 +167,15 @@ class CarInterface(CarInterfaceBase):
 
     use_sdsu = bool(ret.flags & ToyotaFlagsSP.SMART_DSU)
 
+    # リルートハーネスは DSU の出力を bus 2 へ移し、panda が DSU の 0x343 を openpilot の指令に置き換えられるようにする。
+    # フィンガープリント中は panda のリレーが未切替で bus 0 と bus 2 が同じ配線になり、ハーネスの有無を
+    # CAN から見分けられないため、ファイルで明示的に有効にする。付け忘れは PRE_COLLISION の欠落(canError)、
+    # 外し忘れは panda のリレー異常検知で、どちらも openpilot が作動しない側に倒れる
+    has_dsu = candidate not in (TSS2_CAR | NO_DSU_CAR | UNSUPPORTED_DSU_CAR | SECOC_CAR)
+    use_reroute = has_dsu and not use_sdsu and os.path.exists(DSU_REROUTE_FLAG_PATH)
+    if use_reroute:
+      stock_cp.flags |= ToyotaFlags.DSU_REROUTE.value
+
     stock_cp.minEnableSpeed = -1. if use_sdsu else stock_cp.minEnableSpeed
 
     # reuse logic from _get_params
@@ -182,7 +196,7 @@ class CarInterface(CarInterfaceBase):
     # openpilot longitudinal behind experimental long toggle:
     #  - cars w/ smartDSU or CAN filter installed
     #  - TSS2 radar ACC cars w/o smartDSU installed (disables radar)
-    stock_cp.openpilotLongitudinalControl = use_sdsu or \
+    stock_cp.openpilotLongitudinalControl = use_sdsu or use_reroute or \
       candidate in (TSS2_CAR - RADAR_ACC_CAR) or \
       bool(stock_cp.flags & ToyotaFlags.DISABLE_RADAR)
 
