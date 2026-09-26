@@ -9,6 +9,7 @@ from opendbc.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerP
                                                   ToyotaSafetyFlags, UNSUPPORTED_DSU_CAR, SECOC_CAR
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
+from opendbc.car.toyota.local_tune import load_long_tune
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP, ToyotaSafetyFlagsSP
 
 SteerControlType = structs.CarParams.SteerControlType
@@ -211,6 +212,12 @@ class CarInterface(CarInterfaceBase):
       stock_cp.safetyConfigs[0].safetyParam |= ToyotaSafetyFlags.STOCK_LONGITUDINAL.value
     else:
       stock_cp.safetyConfigs[0].safetyParam &= ~ToyotaSafetyFlags.STOCK_LONGITUDINAL.value
+
+    # 遅延はプランナーとワールドモデルが目標加速度を先読みする時間になるため、ログから求めた値で上書きできるようにする。
+    # 縦制御の担い手はここで確定するので、上書きもここで行う
+    actuator_delay = load_long_tune().actuator_delay
+    if stock_cp.openpilotLongitudinalControl and actuator_delay is not None:
+      stock_cp.longitudinalActuatorDelay = actuator_delay
 
     return ret
 

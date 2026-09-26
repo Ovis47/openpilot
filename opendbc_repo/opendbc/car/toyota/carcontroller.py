@@ -8,6 +8,7 @@ from opendbc.car.common.pid import PIDController
 from opendbc.car.secoc import add_mac, build_sync_mac
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.toyota import toyotacan
+from opendbc.car.toyota.local_tune import load_long_tune
 from opendbc.car.toyota.values import CAR, NO_STOP_TIMER_CAR, TSS2_CAR, \
                                         CarControllerParams, ToyotaFlags, \
                                         UNSUPPORTED_DSU_CAR
@@ -46,6 +47,9 @@ def get_long_tune(CP, params):
     kiBP = [0., 5., 35.]
     kiV = [3.6, 2.4, 1.5]
 
+  # 車両個体ごとの応答に合わせるため、ログから求めた倍率で積分ゲイン全体を調整できるようにする
+  kiV = [ki * load_long_tune().ki_scale for ki in kiV]
+
   return PIDController(0.0, (kiBP, kiV), k_f=1.0,
                        pos_limit=params.ACCEL_MAX, neg_limit=params.ACCEL_MIN,
                        rate=1 / (DT_CTRL * 3))
@@ -67,6 +71,7 @@ class CarController(CarControllerBase, GasInterceptorCarController):
 
     # *** start long control state ***
     self.long_pid = get_long_tune(self.CP, self.params)
+    self.long_tune = load_long_tune()
     self.aego = FirstOrderFilter(0.0, 0.25, DT_CTRL * 3)
     self.pitch = FirstOrderFilter(0, 0.5, DT_CTRL)
     self.pitch_hp = HighPassFilter(0.0, 0.25, 1.5, DT_CTRL)
@@ -235,7 +240,8 @@ class CarController(CarControllerBase, GasInterceptorCarController):
         self.aego.update(a_ego_blended)
         j_ego = (self.aego.x - prev_aego) / (DT_CTRL * 3)
 
-        future_t = float(np.interp(CS.out.vEgo, [2., 5.], [0.25, 0.5]))
+        # 先読みは aEgo の計測ノイズを増幅して PID を揺らすため、車両ごとに弱められるようにする
+        future_t = float(np.interp(CS.out.vEgo, [2., 5.], [0.25, 0.5])) * self.long_tune.future_scale
         a_ego_future = a_ego_blended + j_ego * future_t
 
         if CC.longActive:
@@ -248,7 +254,7 @@ class CarController(CarControllerBase, GasInterceptorCarController):
             # Toyota's PCM slowly responds to changes in pitch. On change, we amplify our
             # acceleration request to compensate for the undershoot and following overshoot
             pitch_compensation = float(np.clip(math.sin(self.pitch_hp.x) * ACCELERATION_DUE_TO_GRAVITY,
-                                               -MAX_PITCH_COMPENSATION, MAX_PITCH_COMPENSATION))
+                                               -MAX_PITCH_COMPENSATION, MAX_PITCH_COMPENSATION)) * self.long_tune.pitch_scale
             pcm_accel_cmd += pitch_compensation
 
           pcm_accel_cmd = self.long_pid.update(error_future,
