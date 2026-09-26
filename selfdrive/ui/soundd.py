@@ -65,8 +65,8 @@ ALERT_VOLUME_MIN_SCALE: dict[int, float] = {
   AudibleAlert.refuse: 0.0,
   AudibleAlert.prompt: 0.1,
   AudibleAlert.promptRepeat: 0.1,
-  AudibleAlert.promptDistracted: 0.3,
-  AudibleAlert.warningSoft: 0.3,
+  AudibleAlert.promptDistracted: 0.1,
+  AudibleAlert.warningSoft: 0.1,
   AudibleAlert.warningImmediate: 0.1,
 }
 
