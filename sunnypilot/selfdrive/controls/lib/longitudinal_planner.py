@@ -71,6 +71,13 @@ class LongitudinalPlannerSP:
 
     self.source = min(targets, key=lambda k: targets[k][0])
     self.output_v_target, self.output_a_target = targets[self.source]
+
+    # カーブ減速は目標速度を下げるだけにし、MPC の初期加速度（a_desired）は置き換えない。
+    # 置き換えると MPC の出発点が不連続に変わり、加速度指令が急変する（2026-09-26 に急さが純正の約 2 倍になった）。
+    # SCC の目標速度は目標加速度での減速分を先取りした値なので、減速自体はそれで始まる
+    if self.source in (LongitudinalPlanSource.sccVision, LongitudinalPlanSource.sccMap):
+      return self.output_v_target, a_ego
+
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
