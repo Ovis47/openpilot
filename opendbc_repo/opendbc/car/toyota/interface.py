@@ -201,6 +201,11 @@ class CarInterface(CarInterfaceBase):
       candidate in (TSS2_CAR - RADAR_ACC_CAR) or \
       bool(stock_cp.flags & ToyotaFlags.DISABLE_RADAR)
 
+    # autoResumeSng は制御には使われない説明用の値。2017 Prius（ハイブリッド）+ リルートハーネスでは、
+    # 前車に合わせて停止したあと RES なしで再発進することを実走行で確認したため、実態に合わせる（2026-09-26）
+    if use_reroute:
+      stock_cp.autoResumeSng = True
+
     ret.enableGasInterceptor = 0x201 in fingerprint[0] and stock_cp.openpilotLongitudinalControl and \
                                not stock_cp.flags & ToyotaFlags.SECOC
 
