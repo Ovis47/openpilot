@@ -1,4 +1,6 @@
+import json
 import math
+import os
 import numpy as np
 import time
 import wave
@@ -63,6 +65,83 @@ if HARDWARE.get_device_type() == "tizi":
     AudibleAlert.disengage: ("disengage_tizi.wav", 1, MAX_VOLUME),
   })
 
+# 警報ごとの音量倍率。Params のキー追加は C++ の再ビルドが必要なため /data のファイルで持つ
+ALERT_VOLUME_PATH = "/data/alert_volume.json"
+ALERT_VOLUME_MAX_SCALE = 2.0
+ALERT_VOLUME_RELOAD_INTERVAL = 1.0  # seconds
+# 設定ミスで安全に関わる警報が聞こえなくなる事故を防ぐため、種類ごとに倍率の下限を設ける
+ALERT_VOLUME_MIN_SCALE: dict[int, float] = {
+  AudibleAlert.engage: 0.0,
+  AudibleAlert.disengage: 0.0,
+  AudibleAlert.refuse: 0.0,
+  AudibleAlert.prompt: 0.1,
+  AudibleAlert.promptRepeat: 0.1,
+  AudibleAlert.promptDistracted: 0.3,
+  AudibleAlert.warningSoft: 0.3,
+  AudibleAlert.warningImmediate: 0.1,
+  AudibleAlertSP.promptSingleLow: 0.1,
+  AudibleAlertSP.promptSingleHigh: 0.1,
+}
+
+
+# AudibleAlertSP は純正の警報を同じ番号で含む上位互換なので、名前はこちらから引く
+ALERT_BY_NAME: dict[str, int] = {name: alert for name, alert in AudibleAlertSP.schema.enumerants.items() if alert in ALERT_VOLUME_MIN_SCALE}
+ALERT_NAME: dict[int, str] = {alert: name for name, alert in ALERT_BY_NAME.items()}
+
+
+def clamp_alert_scale(alert: int, scale: float) -> float:
+  return min(max(scale, ALERT_VOLUME_MIN_SCALE[alert]), ALERT_VOLUME_MAX_SCALE)
+
+
+def parse_alert_volume(raw: dict) -> dict[int, float]:
+  scales: dict[int, float] = {}
+  for name, value in raw.items():
+    if name not in ALERT_BY_NAME:
+      cloudlog.warning(f"alert volume: unknown alert {name!r}, ignored")
+      continue
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+      cloudlog.warning(f"alert volume: invalid value for {name!r}: {value!r}, ignored")
+      continue
+    scales[ALERT_BY_NAME[name]] = clamp_alert_scale(ALERT_BY_NAME[name], float(value))
+  return scales
+
+
+class AlertVolume:
+  def __init__(self, path: str = ALERT_VOLUME_PATH):
+    self.path = path
+    self.scales: dict[int, float] = {}
+    self.loaded_mtime: float | None = None
+    self.last_check = 0.
+
+  def scale(self, alert: int) -> float:
+    return self.scales.get(alert, 1.0)
+
+  def reload_if_changed(self, now: float) -> None:
+    if now - self.last_check < ALERT_VOLUME_RELOAD_INTERVAL:
+      return
+    self.last_check = now
+    try:
+      mtime = os.path.getmtime(self.path)
+    except FileNotFoundError:
+      if self.loaded_mtime is not None:
+        self.scales, self.loaded_mtime = {}, None
+      return
+    if mtime == self.loaded_mtime:
+      return
+    self.loaded_mtime = mtime
+    try:
+      with open(self.path) as f:
+        raw = json.load(f)
+      if not isinstance(raw, dict):
+        raise ValueError("top level must be an object")
+    except (OSError, ValueError) as e:
+      # 壊れた設定で音が止まるのを避け、直前の倍率を使い続ける
+      cloudlog.warning(f"alert volume: failed to load {self.path}: {e}")
+      return
+    self.scales = parse_alert_volume(raw)
+    cloudlog.info(f"alert volume loaded: { {ALERT_NAME[a]: v for a, v in self.scales.items()} }")
+
+
 def check_selfdrive_timeout_alert(sm):
   ss_missing = time.monotonic() - sm.recv_time['selfdriveState']
 
@@ -87,6 +166,7 @@ class Soundd(QuietMode):
     self.ramp_start_time = 0.
 
     self.selfdrive_timeout_alert = False
+    self.alert_volume = AlertVolume()
 
     self.spl_filter_weighted = FirstOrderFilter(0, 2.5, FILTER_DT, initialized=False)
 
@@ -124,7 +204,10 @@ class Soundd(QuietMode):
         written_frames += frames_to_write
         self.current_sound_frame += frames_to_write
 
-    return ret * self.current_volume
+    return ret * self.output_volume()
+
+  def output_volume(self) -> float:
+    return min(self.current_volume * self.alert_volume.scale(self.current_alert), MAX_VOLUME)
 
   def callback(self, data_out: np.ndarray, frames: int, time, status) -> None:
     if status:
@@ -182,6 +265,7 @@ class Soundd(QuietMode):
           self.spl_filter_weighted.update(sm["soundPressure"].soundPressureWeightedDb)
           self.current_volume = self.calculate_volume(float(self.spl_filter_weighted.x))
 
+        self.alert_volume.reload_if_changed(time.monotonic())
         self.get_audible_alert(sm)
 
         # Ramp up immediate warning sound over 4s
