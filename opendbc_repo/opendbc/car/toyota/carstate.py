@@ -5,6 +5,7 @@ from opendbc.car import Bus, DT_CTRL, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.toyota.set_speed_stretch import stretch_set_speed_kph
 from opendbc.car.toyota.values import ToyotaFlags, CAR, DBC, STEER_THRESHOLD, NO_STOP_TIMER_CAR, \
                                                   TSS2_CAR, RADAR_ACC_CAR, EPS_SCALE, UNSUPPORTED_DSU_CAR, \
                                                   SECOC_CAR
@@ -156,6 +157,10 @@ class CarState(CarStateBase, CarStateExt):
     if ret.cruiseState.speed != 0:
       conversion_factor = CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS
       ret.cruiseState.speedCluster = cluster_set_speed * conversion_factor
+      # 車側の上限 115km/h を超えて走れるようにする（TSS-P のみ）。車側が速度を制御する純正の縦制御では読み替えない
+      if self.CP.openpilotLongitudinalControl and is_metric and self.CP.carFingerprint not in TSS2_CAR:
+        ret.cruiseState.speed = stretch_set_speed_kph(ret.cruiseState.speed * CV.MS_TO_KPH) * CV.KPH_TO_MS
+        ret.cruiseState.speedCluster = stretch_set_speed_kph(cluster_set_speed) * CV.KPH_TO_MS
 
     if (self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value) or dsu_reroute:
       if not (self.CP_SP.flags & ToyotaFlagsSP.SMART_DSU.value):
