@@ -159,8 +159,11 @@ class CarState(CarStateBase, CarStateExt):
       ret.cruiseState.speedCluster = cluster_set_speed * conversion_factor
       # 車側の上限 115km/h を超えて走れるようにする（TSS-P のみ）。車側が速度を制御する純正の縦制御では読み替えない
       if self.CP.openpilotLongitudinalControl and is_metric and self.CP.carFingerprint not in TSS2_CAR:
-        ret.cruiseState.speed = stretch_set_speed_kph(ret.cruiseState.speed * CV.MS_TO_KPH) * CV.KPH_TO_MS
-        ret.cruiseState.speedCluster = stretch_set_speed_kph(cluster_set_speed) * CV.KPH_TO_MS
+        stretched_cluster_kph = stretch_set_speed_kph(cluster_set_speed)
+        # 制御用の SET_SPEED はメーター表示より数%低い（メーター誤差の分）。その比を保ったまま引き伸ばす
+        if cluster_set_speed > 0:
+          ret.cruiseState.speed *= stretched_cluster_kph / cluster_set_speed
+        ret.cruiseState.speedCluster = stretched_cluster_kph * CV.KPH_TO_MS
 
     if (self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value) or dsu_reroute:
       if not (self.CP_SP.flags & ToyotaFlagsSP.SMART_DSU.value):
