@@ -16,6 +16,7 @@ from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
+from openpilot.sunnypilot.selfdrive.controls.lib.lead_speed_follow import LeadInput, LeadSpeedFollow
 
 A_CRUISE_MAX_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
@@ -58,6 +59,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
 
     self.a_desired = init_a
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
+    self.lead_speed_follow = LeadSpeedFollow(self.dt)
     self.prev_accel_clip = [ACCEL_MIN, ACCEL_MAX]
     self.output_a_target = 0.0
     self.output_should_stop = False
@@ -129,6 +131,11 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
       clipped_accel_coast = max(accel_coast, accel_clip[0])
       clipped_accel_coast_interp = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [accel_clip[1], clipped_accel_coast])
       accel_clip[1] = min(accel_clip[1], clipped_accel_coast_interp)
+
+    # 前の車が設定より速いときは上限付きで追従する。カーブ減速などの上限はこの後で掛かる
+    lead_one = sm['radarState'].leadOne
+    v_cruise = self.lead_speed_follow.update(not reset_state, v_ego, v_cruise, v_cruise_kph, sm['carState'].vCruiseCluster,
+                                             LeadInput(lead_one.status, lead_one.radar, lead_one.modelProb, lead_one.dRel, lead_one.vLead))
 
     # Get new v_cruise and a_desired from Smart Cruise Control and Speed Limit Assist
     v_cruise, self.a_desired = LongitudinalPlannerSP.update_targets(self, sm, self.v_desired_filter.x, self.a_desired, v_cruise)
