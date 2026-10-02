@@ -106,6 +106,14 @@ def distance_along_geometry(geometry: list[Coordinate], pos: Coordinate) -> floa
   return total_distance_closest
 
 
+def position_is_valid(param: str, params: Params) -> bool:
+  json_str = params.get(param)
+  if not json_str:
+    return False
+  # 有効フラグを書かない古い書き手の位置は、従来どおり有効として扱う
+  return bool(json.loads(json_str).get('valid', True))
+
+
 def coordinate_from_param(param: str, params: Params = None) -> Coordinate | None:
   if params is None:
     params = Params()

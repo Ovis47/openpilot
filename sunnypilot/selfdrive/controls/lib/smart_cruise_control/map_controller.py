@@ -7,7 +7,7 @@ from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
 from openpilot.sunnypilot import PARAMS_UPDATE_PERIOD
-from openpilot.sunnypilot.navd.helpers import coordinate_from_param, Coordinate
+from openpilot.sunnypilot.navd.helpers import coordinate_from_param, position_is_valid, Coordinate
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control import MIN_V
 
 MapState = VisionState = custom.LongitudinalPlanSP.SmartCruiseControl.MapState
@@ -101,6 +101,13 @@ class SmartCruiseControlMap:
       self.enabled = self.params.get_bool("SmartCruiseControlMap")
 
   def update_calculations(self) -> None:
+    # 走り始めの GPS 測位前（1 分前後）は前回の位置のままで、実在しないカーブに向けて減速していた（2026-10 ルート b2・b4）
+    if not position_is_valid("LastGPSPosition", self.mem_params):
+      self.v_target = 0.0
+      self.target_lat = 0.0
+      self.target_lon = 0.0
+      return
+
     self.last_position = coordinate_from_param("LastGPSPosition", self.mem_params) or Coordinate(0.0, 0.0)
     lat = self.last_position.latitude
     lon = self.last_position.longitude

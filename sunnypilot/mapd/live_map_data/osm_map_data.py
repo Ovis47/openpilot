@@ -30,9 +30,11 @@ class OsmMapData(BaseMapData):
     if self.last_position is None:
       return
 
+    # 測位前は前回の位置のままなので、地図方式のカーブ減速が古い位置で誤作動しないよう有効かどうかを添える
     params = {
       "latitude": self.last_position.latitude,
       "longitude": self.last_position.longitude,
+      "valid": self.localizer_valid,
     }
 
     if self.last_bearing is not None:
